@@ -133,6 +133,27 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     except (jwt.PyJWTError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token")
 
+def infer_category(text: str) -> str:
+    text = text.lower()
+
+    mapping = {
+        "food": ["food", "hungry", "meal", "ration", "eat"],
+        "medical": ["medical", "doctor", "hospital", "blood", "injury", "medicine"],
+        "shelter": ["home", "shelter", "house", "stay", "roof"],
+        "clothing": ["clothes", "dress", "jacket", "blanket"],
+        "rescue": ["rescue", "help", "stuck", "trapped", "flood"]
+    }
+
+    scores = {}
+
+    for category, keywords in mapping.items():
+        score = sum(1 for word in keywords if word in text)
+        scores[category] = score
+
+    best = max(scores, key=scores.get)
+
+    return best if scores[best] > 0 else "other"
+
 def row_to_need(row: sqlite3.Row) -> Dict[str, Any]:
     return {
         "id": row["id"],
@@ -258,6 +279,11 @@ def create_need(
     if len(request_counts[user_id]) >= 5:
         raise HTTPException(429, "Too many requests")
     request_counts[user_id].append(now)
+    
+    # Auto-category inference
+    if not need.category or need.category.strip() == "":
+        combined_text = f"{need.title} {need.description}"
+        need.category = infer_category(combined_text)
     
     with get_db() as conn:
         cursor = conn.execute(
